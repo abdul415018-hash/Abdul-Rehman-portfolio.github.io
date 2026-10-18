@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 1. Global Safety Net: Default-deny all undefined documents and paths
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    // Only the verified owner account may manage the site (Google sign-in required)
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email == 'abdul415018@gmail.com';
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function isValidPortfolio(data) {
+      return data.keys().hasAll(['activeTemplateId', 'hero', 'about', 'contact'])
+        && data.activeTemplateId is string
+        && data.activeTemplateId.size() <= 64
+        && data.hero is map
+        && data.about is map
+        && data.contact is map;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['name', 'email', 'message'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 100
+        && data.email is string
+        && data.email.size() > 0
+        && data.email.size() <= 150
+        && data.message is string
+        && data.message.size() > 0
+        && data.message.size() <= 2000;
+    }
+
+    // Public readable portfolio settings, writeable by portfolio admin dashboard
+    match /portfolio/{docId} {
+      allow get: if docId == 'data';
+      allow list: if false;
+      allow create, update: if docId == 'data' && isAdmin() && isValidPortfolio(incoming());
+      allow delete: if false;
+    }
+
+    // Client contact messages submitted via Contact Form
+    match /messages/{messageId} {
+      // Visitors can only submit a new message; only the owner can read or manage them
+      allow create: if isValidId(messageId) && isValidMessage(incoming());
+      allow get, list, update, delete: if isAdmin();
+    }
+  }
+}
